@@ -4,7 +4,8 @@ import path from "node:path";
 const repoRoot = process.cwd();
 const planRoot = path.join(repoRoot, "学习计划");
 const dailyRoot = path.join(planRoot, "每日学习计划");
-const startDate = new Date(Date.UTC(2026, 7, 11));
+const planStartDate = "2026-09-01";
+const startDate = new Date(`${planStartDate}T00:00:00Z`);
 
 const modules = [
   {
@@ -456,7 +457,7 @@ function rootIndexDocument() {
 
 ## 使用规则
 
-- **开始日期**：2026-08-11
+- **开始日期**：${allDays[0].date}
 - **结束日期**：${endDate}
 - **总学习日**：360天
 - **主线**：TypeScript优先、Python辅助；面向前端/移动端工程师转型AI应用开发。
@@ -532,6 +533,8 @@ ${monthlyRows}
 `;
 }
 
+// 每次完整重建生成目录，避免调整开始日期后残留旧日期文件夹和失效索引。
+fs.rmSync(dailyRoot, { recursive: true, force: true });
 fs.mkdirSync(dailyRoot, { recursive: true });
 
 for (const [index, day] of allDays.entries()) {

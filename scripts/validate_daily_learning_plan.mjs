@@ -4,6 +4,7 @@ import path from "node:path";
 const repoRoot = process.cwd();
 const planRoot = path.join(repoRoot, "学习计划");
 const dailyRoot = path.join(planRoot, "每日学习计划");
+const expectedStartDate = new Date(Date.UTC(2026, 8, 1));
 const requiredSections = [
   "## 今日定位",
   "## 学习目标",
@@ -52,7 +53,7 @@ assert(new Set(records.map((item) => item.date)).size === 360, "date存在重复
 for (let index = 0; index < records.length; index += 1) {
   const record = records[index];
   assert(record.day === index + 1, `Day顺序错误：期望${index + 1}，实际${record.day}`);
-  const expected = new Date(Date.UTC(2026, 7, 11 + index)).toISOString().slice(0, 10);
+  const expected = new Date(expectedStartDate.getTime() + index * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
   assert(record.date === expected, `Day ${record.day} 日期错误：期望${expected}，实际${record.date}`);
 }
 
