@@ -4,7 +4,11 @@
 
 Lanhu is the project's review, annotation, asset and developer-handoff surface. Figma is not part of the workflow.
 
-The supplied `lanhumcp.com` site targets conversion of existing design files into Unity UGUI prefabs. It is not a web UI authoring canvas and is out of scope for this React product. The web project should use the standard Lanhu collaboration workflow; the design authoring source must produce web-oriented screens that can be uploaded to Lanhu.
+Official team workspace:
+
+- [AChat Lanhu workspace](https://lanhuapp.com/dashboard/#/item?fid=all&tid=d77f64c3-ccb2-4967-9958-9c7231a48178)
+
+The previously supplied `lanhumcp.com` site targets conversion of existing design files into Unity UGUI prefabs and is out of scope for this React product. All AChat web design review and delivery should use the official `lanhuapp.com` workspace above.
 
 ## Required review structure
 
