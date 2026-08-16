@@ -1,0 +1,14 @@
+{
+  "React function component": {
+    "scope": "typescriptreact",
+    "prefix": "arc",
+    "body": [
+      "type ${1:ComponentName}Props = {}",
+      "",
+      "export function ${1:ComponentName}({}: ${1:ComponentName}Props) {",
+      "  return <div>${1:ComponentName}</div>",
+      "}"
+    ],
+    "description": "Create an AChat React function component"
+  }
+}

@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { apiClient } from './api/client'
-import type { Conversation, HealthResponse } from './types'
+import type { Conversation, HealthResponse } from './types/api'
 
 export default function App() {
   const [health, setHealth] = useState<HealthResponse | null>(null)

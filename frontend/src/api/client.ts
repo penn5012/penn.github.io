@@ -1,9 +1,8 @@
-import type { Conversation, HealthResponse } from '../types'
-
-const apiBaseUrl = (import.meta.env.VITE_API_BASE_URL ?? '').replace(/\/$/, '')
+import { env } from '../config/env'
+import type { Conversation, HealthResponse } from '../types/api'
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
-  const response = await fetch(`${apiBaseUrl}${path}`, {
+  const response = await fetch(`${env.apiBaseUrl}${path}`, {
     ...init,
     headers: { 'Content-Type': 'application/json', ...init?.headers },
   })
