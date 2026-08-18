@@ -39,6 +39,7 @@ npm run dev:frontend
 ```
 
 默认访问 <http://localhost:5173>。开发服务器会把 `/api` 和 `/health` 代理到 `http://localhost:3000`。
+首页的“前后端联调 Demo”接收 `code` 参数；输入 `achat-demo` 会显示 Fastify 返回的成功消息，其他值会显示失败提示。
 
 ## 约定
 

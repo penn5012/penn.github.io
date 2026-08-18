@@ -2,15 +2,30 @@
   "name": "ai-chat-platform",
   "private": true,
   "version": "0.1.0",
+  "type": "module",
   "description": "前后端分离的 AI 应用基础工程",
   "workspaces": [
     "frontend",
     "backend"
   ],
   "scripts": {
+    "dev": "concurrently -n backend,frontend -c blue,magenta \"npm:dev:backend\" \"npm:dev:frontend\"",
     "dev:frontend": "npm run dev --workspace frontend",
     "dev:backend": "npm run dev --workspace backend",
+    "lint": "eslint frontend/src frontend/vite.config.ts backend/src backend/test",
+    "format": "prettier --write frontend/src frontend/vite.config.ts backend/src backend/test package.json README.md docs/api/openapi.yaml",
+    "format:check": "prettier --check frontend/src frontend/vite.config.ts backend/src backend/test package.json README.md docs/api/openapi.yaml",
+    "test": "npm run test --workspace backend",
     "build": "npm run build --workspace frontend && npm run build --workspace backend",
-    "typecheck": "npm run typecheck --workspace frontend && npm run typecheck --workspace backend"
+    "typecheck": "npm run typecheck --workspace frontend && npm run typecheck --workspace backend",
+    "verify": "npm run lint && npm run format:check && npm run typecheck && npm run test && npm run build"
+  },
+  "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "concurrently": "^10.0.5",
+    "eslint": "^10.8.1",
+    "globals": "^17.11.0",
+    "prettier": "^3.9.6",
+    "typescript-eslint": "^8.67.0"
   }
 }
