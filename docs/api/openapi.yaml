@@ -96,8 +96,10 @@ paths:
         operation returns a 4xx or 5xx response.
 
         Provider API keys are server-side configuration and must never be accepted in
-        this request or included in any response. Streaming, cancellation and retry
-        semantics are intentionally outside this phase-one operation.
+        this request or included in any response. The optional provider and model
+        selection applies only to this generation request; it does not change a
+        conversation-wide preference. Streaming, cancellation and retry semantics are
+        intentionally outside this phase-one operation.
       parameters:
         - in: path
           name: conversationId
@@ -120,7 +122,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/CreateConversationMessageResponse'
         '400':
-          $ref: '#/components/responses/BadRequest'
+          $ref: '#/components/responses/InvalidMessageRequest'
         '404':
           $ref: '#/components/responses/ConversationNotFound'
         '502':
@@ -179,6 +181,25 @@ components:
           maxLength: 10000
           description: User-authored plain text sent to the assistant.
           example: 请用通俗的语言解释 Node.js 事件循环。
+        provider:
+          $ref: '#/components/schemas/ModelProviderName'
+        model:
+          type: string
+          enum: [gpt-5.4-nano, deepseek-chat]
+          description: |
+            Server-approved model identifier for the selected provider. When omitted,
+            the service uses `gpt-5.4-nano` for `openai` and `deepseek-chat` for
+            `deepseek`. A model that does not belong to the selected provider is
+            rejected with `MODEL_SELECTION_UNSUPPORTED`.
+          examples: [gpt-5.4-nano, deepseek-chat]
+    ModelProviderName:
+      type: string
+      enum: [openai, deepseek]
+      default: openai
+      description: |
+        Model provider used for this generation request. Defaults to `openai` when
+        omitted. Provider credentials are selected from server-side configuration;
+        clients cannot supply API keys or provider base URLs.
     CreateConversationMessageResponse:
       type: object
       additionalProperties: false
@@ -233,6 +254,25 @@ components:
             error:
               code: INVALID_REQUEST
               message: Request validation failed.
+    InvalidMessageRequest:
+      description: Invalid message content or unsupported provider/model selection
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorEnvelope'
+          examples:
+            invalidRequest:
+              summary: Message request validation failed
+              value:
+                error:
+                  code: INVALID_REQUEST
+                  message: Request validation failed.
+            unsupportedModelSelection:
+              summary: Provider and model are not an approved pair
+              value:
+                error:
+                  code: MODEL_SELECTION_UNSUPPORTED
+                  message: The selected provider and model combination is not supported.
     ConversationNotFound:
       description: Conversation does not exist
       content:

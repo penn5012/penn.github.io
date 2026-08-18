@@ -2,6 +2,10 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 import { buildApp } from '../src/app.js'
 import { createOpenAiProvider } from '../src/providers/openai.provider.js'
+import {
+  createModelProvider,
+  createModelProviderFactory,
+} from '../src/providers/model-provider-factory.js'
 import { ModelProviderUnavailableError } from '../src/providers/model-provider.js'
 import { listMessages } from '../src/modules/conversations/conversation.service.js'
 import { createShutdownHandler } from '../src/server-shutdown.js'
@@ -144,6 +148,77 @@ test('POST message creates the user and assistant messages', async (t) => {
   assert.deepEqual(response.json().assistantMessage.role, 'assistant')
   assert.deepEqual(response.json().assistantMessage.content, '回复：你好')
   assert.equal(listMessages(conversationId).length, 2)
+})
+
+test('POST message resolves the requested provider and model per request', async (t) => {
+  const selections: Array<{ provider?: string; model?: string }> = []
+  const app = buildApp({
+    modelProviderFactory(selection) {
+      selections.push(selection ?? {})
+      return {
+        async generateReply(messages) {
+          return `回复：${messages.at(-1)?.content}`
+        },
+      }
+    },
+  })
+  t.after(() => app.close())
+
+  const conversationResponse = await app.inject({
+    method: 'POST',
+    url: '/api/conversations',
+    payload: { title: '供应商选择测试' },
+  })
+  const conversationId = conversationResponse.json().id
+  const response = await app.inject({
+    method: 'POST',
+    url: `/api/conversations/${conversationId}/messages`,
+    payload: {
+      content: '使用 DeepSeek',
+      provider: 'deepseek',
+      model: 'deepseek-chat',
+    },
+  })
+
+  assert.equal(response.statusCode, 201)
+  assert.deepEqual(selections, [
+    { provider: 'deepseek', model: 'deepseek-chat' },
+  ])
+})
+
+test('POST message rejects an unsupported provider/model pair', async (t) => {
+  const app = buildApp({
+    modelProviderFactory: createModelProviderFactory({
+      provider: 'openai',
+      model: 'gpt-5.4-nano',
+      openAiApiKey: undefined,
+      deepSeekApiKey: undefined,
+      timeoutMs: 30_000,
+    }),
+  })
+  t.after(() => app.close())
+
+  const conversationResponse = await app.inject({
+    method: 'POST',
+    url: '/api/conversations',
+    payload: { title: '供应商配对测试' },
+  })
+  const conversationId = conversationResponse.json().id
+  const response = await app.inject({
+    method: 'POST',
+    url: `/api/conversations/${conversationId}/messages`,
+    payload: {
+      content: '不应调用模型',
+      provider: 'openai',
+      model: 'deepseek-chat',
+    },
+  })
+
+  assert.equal(response.statusCode, 400)
+  assert.deepEqual(response.json().error, {
+    code: 'MODEL_SELECTION_UNSUPPORTED',
+    message: 'The selected provider and model combination is not supported.',
+  })
 })
 
 test('POST message sends prior user and assistant messages in order', async (t) => {
@@ -374,6 +449,35 @@ test('default OpenAI provider without a key returns 503', async (t) => {
     JSON.stringify(response.json()).includes('OPENAI_API_KEY'),
     false,
   )
+  assert.equal(listMessages(conversationId).length, 0)
+})
+
+test('DeepSeek provider without a key returns 503 without a live request', async (t) => {
+  const app = buildApp({
+    modelProvider: createModelProvider({
+      provider: 'deepseek',
+      model: 'deepseek-chat',
+      openAiApiKey: undefined,
+      deepSeekApiKey: undefined,
+      timeoutMs: 30_000,
+    }),
+  })
+  t.after(() => app.close())
+
+  const conversationResponse = await app.inject({
+    method: 'POST',
+    url: '/api/conversations',
+    payload: { title: 'DeepSeek 测试' },
+  })
+  const conversationId = conversationResponse.json().id
+  const response = await app.inject({
+    method: 'POST',
+    url: `/api/conversations/${conversationId}/messages`,
+    payload: { content: '不会发送真实请求' },
+  })
+
+  assert.equal(response.statusCode, 503)
+  assert.equal(response.json().error.code, 'MODEL_PROVIDER_UNAVAILABLE')
   assert.equal(listMessages(conversationId).length, 0)
 })
 

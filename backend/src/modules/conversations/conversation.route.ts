@@ -1,6 +1,6 @@
 import type { FastifyInstance } from 'fastify'
 import { AppError } from '../../shared/http/app-error.js'
-import type { ModelProvider } from '../../providers/model-provider.js'
+import type { ModelProviderFactory } from '../../providers/model-provider-factory.js'
 import {
   ModelProviderResponseError,
   ModelProviderUnavailableError,
@@ -13,11 +13,15 @@ import {
 import type { CreateConversationBody } from './conversation.types.js'
 
 type ConversationParams = { conversationId: string }
-type CreateConversationMessageBody = { content: string }
+type CreateConversationMessageBody = {
+  content: string
+  provider?: 'openai' | 'deepseek'
+  model?: 'gpt-5.4-nano' | 'deepseek-chat'
+}
 
 export async function conversationRoute(
   app: FastifyInstance,
-  provider: ModelProvider,
+  providerFactory: ModelProviderFactory,
 ) {
   app.get('/api/conversations', async () => listConversations())
 
@@ -65,6 +69,8 @@ export async function conversationRoute(
           additionalProperties: false,
           properties: {
             content: { type: 'string', minLength: 1, maxLength: 10_000 },
+            provider: { type: 'string', enum: ['openai', 'deepseek'] },
+            model: { type: 'string', enum: ['gpt-5.4-nano', 'deepseek-chat'] },
           },
         },
       },
@@ -76,6 +82,10 @@ export async function conversationRoute(
       }
 
       try {
+        const provider = providerFactory({
+          provider: request.body.provider,
+          model: request.body.model,
+        })
         const result = await createConversationMessage(
           request.params.conversationId,
           content,

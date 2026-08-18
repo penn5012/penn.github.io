@@ -1,5 +1,6 @@
 import type {
   Conversation,
+  CreateConversationMessageRequest,
   CreateConversationMessageResponse,
   DemoResponse,
 } from '../types/api'
@@ -16,12 +17,15 @@ export const apiClient = {
       method: 'POST',
       data: { title },
     }),
-  sendMessage: (conversationId: string, content: string) =>
+  sendMessage: (
+    conversationId: string,
+    data: CreateConversationMessageRequest,
+  ) =>
     request<CreateConversationMessageResponse>(
       `/api/conversations/${encodeURIComponent(conversationId)}/messages`,
       {
         method: 'POST',
-        data: { content },
+        data,
       },
     ),
 }

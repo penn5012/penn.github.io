@@ -19,6 +19,16 @@ export type DemoResponse = {
 
 export type MessageRole = 'user' | 'assistant'
 
+export type ModelProviderName = 'openai' | 'deepseek'
+
+export type ModelName = 'gpt-5.4-nano' | 'deepseek-chat'
+
+export type CreateConversationMessageRequest = {
+  content: string
+  provider?: ModelProviderName
+  model?: ModelName
+}
+
 export type Message = {
   id: string
   conversationId: string

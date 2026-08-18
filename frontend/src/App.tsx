@@ -1,6 +1,32 @@
 import { useEffect, useState } from 'react'
 import { apiClient } from './api/client'
-import type { Conversation, DemoResponse, Message } from './types/api'
+import type {
+  Conversation,
+  DemoResponse,
+  Message,
+  ModelName,
+  ModelProviderName,
+} from './types/api'
+
+const MODEL_OPTIONS: ReadonlyArray<{
+  provider: ModelProviderName
+  providerLabel: string
+  model: ModelName
+  description: string
+}> = [
+  {
+    provider: 'openai',
+    providerLabel: 'OpenAI',
+    model: 'gpt-5.4-nano',
+    description: '默认 · 低成本',
+  },
+  {
+    provider: 'deepseek',
+    providerLabel: 'DeepSeek',
+    model: 'deepseek-chat',
+    description: '通用对话模型',
+  },
+]
 
 export default function App() {
   const [demo, setDemo] = useState<DemoResponse | null>(null)
@@ -17,6 +43,12 @@ export default function App() {
   const [draft, setDraft] = useState('')
   const [sending, setSending] = useState(false)
   const [chatError, setChatError] = useState('')
+  const [selectedProvider, setSelectedProvider] =
+    useState<ModelProviderName>('openai')
+
+  const selectedModel = MODEL_OPTIONS.find(
+    (option) => option.provider === selectedProvider,
+  )!
 
   const activeConversation = conversations.find(
     (conversation) => conversation.id === activeConversationId,
@@ -101,7 +133,11 @@ export default function App() {
     setChatError('')
 
     try {
-      const result = await apiClient.sendMessage(conversationId, content)
+      const result = await apiClient.sendMessage(conversationId, {
+        content,
+        provider: selectedModel.provider,
+        model: selectedModel.model,
+      })
 
       setMessagesByConversation((current) => ({
         ...current,
@@ -149,10 +185,10 @@ export default function App() {
       <section className="workspace">
         <div className="panel panel-demo">
           <div>
-            <p className="panel-label">前后端联调 Demo</p>
+            <p className="panel-label">前后端联调 Demo · Fake</p>
             <h2>浏览器调用 Fastify 接口</h2>
             <p className="muted">
-              输入请求参数后，前端会通过开发代理调用本机 3000 端口。
+              这个入口返回固定演示数据，用于验证浏览器与 Fastify 的连接。
             </p>
           </div>
           <div className="demo-form">
@@ -279,6 +315,40 @@ export default function App() {
           <p className="chat-note">
             当前只展示本页面中成功返回的消息；刷新页面不会恢复消息历史。
           </p>
+
+          <fieldset className="model-picker" disabled={sending}>
+            <legend>选择模型</legend>
+            <div className="model-options">
+              {MODEL_OPTIONS.map((option) => (
+                <label
+                  className="model-option"
+                  data-active={selectedProvider === option.provider}
+                  key={option.provider}
+                >
+                  <input
+                    checked={selectedProvider === option.provider}
+                    name="model-provider"
+                    onChange={() => {
+                      setSelectedProvider(option.provider)
+                      setChatError('')
+                    }}
+                    type="radio"
+                    value={option.provider}
+                  />
+                  <span>
+                    <strong>{option.providerLabel}</strong>
+                    <small>{option.model}</small>
+                  </span>
+                  <em>{option.description}</em>
+                </label>
+              ))}
+            </div>
+            <p className="model-status" aria-live="polite">
+              {sending
+                ? `${selectedModel.providerLabel} · ${selectedModel.model} 调用中，暂时无法切换`
+                : `已选择 ${selectedModel.providerLabel} · ${selectedModel.model}`}
+            </p>
+          </fieldset>
 
           <div className="message-list" aria-live="polite">
             {!activeConversation && (
