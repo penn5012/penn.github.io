@@ -40,6 +40,8 @@ npm run dev:frontend
 
 默认访问 <http://localhost:5173>。开发服务器会把 `/api` 和 `/health` 代理到 `http://localhost:3000`。
 首页的“前后端联调 Demo”接收 `code` 参数；输入 `achat-demo` 会显示 Fastify 返回的成功消息，其他值会显示失败提示。
+真实 AI 对话支持 OpenAI、DeepSeek 和 Google Gemini；Gemini 请求会由后端使用 `gemini-3.5-flash-lite` 处理，浏览器端不会接触 Provider API Key。
+Gemini 回复通过 SSE 增量显示，生成期间可以主动停止；OpenAI 和 DeepSeek 当前保留完整响应模式。
 
 ## 约定
 

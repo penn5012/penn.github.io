@@ -5,10 +5,11 @@ info:
   description: |
     Shared HTTP contract between the responsive web client and Fastify service.
 
-    The phase-one message generation endpoint is intentionally non-streaming. It
-    establishes a small, reviewable server-side OpenAI integration without exposing
-    provider credentials. Streaming responses, cancellation and reconnect recovery
-    remain required by the PRD and are deferred to a later contract revision.
+    Message generation supports both an atomic JSON response and incremental SSE
+    delivery. Provider credentials remain server-side. Closing the SSE connection
+    cancels the active upstream request and retains that user turn as paused context,
+    so a later "continue" request can resume the interrupted topic. Reconnect recovery
+    remains a later contract revision.
 servers:
   - url: http://localhost:3000
     description: Local development
@@ -98,8 +99,8 @@ paths:
         Provider API keys are server-side configuration and must never be accepted in
         this request or included in any response. The optional provider and model
         selection applies only to this generation request; it does not change a
-        conversation-wide preference. Streaming, cancellation and retry semantics are
-        intentionally outside this phase-one operation.
+        conversation-wide preference. Clients that need incremental output use the
+        sibling `/messages/stream` operation.
       parameters:
         - in: path
           name: conversationId
@@ -127,6 +128,68 @@ paths:
           $ref: '#/components/responses/ConversationNotFound'
         '502':
           $ref: '#/components/responses/ModelProviderError'
+        '503':
+          $ref: '#/components/responses/ModelProviderUnavailable'
+  /api/conversations/{conversationId}/messages/stream:
+    post:
+      operationId: streamConversationMessage
+      summary: Stream an assistant reply with server-sent events
+      description: |
+        Starts an incremental model generation and returns a `text/event-stream`.
+        Gemini uses the Interactions API and emits text from `step.delta` events.
+
+        The stream uses three application-level event types:
+
+        - `assistant.delta`: `data` is a JSON object matching `AssistantDeltaEvent`.
+        - `message.completed`: `data` matches `CreateConversationMessageResponse`.
+        - `error`: `data` matches `ErrorEnvelope` when generation fails after the
+          HTTP 200 stream has started.
+
+        A successful exchange is persisted atomically before the `message.completed`
+        event. Closing the HTTP connection aborts the active provider request and
+        stores the submitted user message plus any assistant text already delivered
+        as paused conversation context. A provider failure represented by an `error`
+        event does not persist its partial output.
+      parameters:
+        - in: path
+          name: conversationId
+          required: true
+          description: Conversation receiving the new message.
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateConversationMessageRequest'
+      responses:
+        '200':
+          description: Incremental assistant response
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+              example: no-cache, no-transform
+          content:
+            text/event-stream:
+              schema:
+                type: string
+              example: |
+                event: assistant.delta
+                data: {"delta":"Node.js "}
+
+                event: assistant.delta
+                data: {"delta":"使用事件循环。"}
+
+                event: message.completed
+                data: {"userMessage":{"id":"00000000-0000-4000-8000-000000000001","conversationId":"00000000-0000-4000-8000-000000000000","role":"user","content":"解释事件循环","createdAt":"2026-08-21T00:00:00.000Z"},"assistantMessage":{"id":"00000000-0000-4000-8000-000000000002","conversationId":"00000000-0000-4000-8000-000000000000","role":"assistant","content":"Node.js 使用事件循环。","createdAt":"2026-08-21T00:00:00.000Z"}}
+
+        '400':
+          $ref: '#/components/responses/InvalidMessageRequest'
+        '404':
+          $ref: '#/components/responses/ConversationNotFound'
         '503':
           $ref: '#/components/responses/ModelProviderUnavailable'
 components:
@@ -178,23 +241,23 @@ components:
         content:
           type: string
           minLength: 1
-          maxLength: 10000
           description: User-authored plain text sent to the assistant.
           example: 请用通俗的语言解释 Node.js 事件循环。
         provider:
           $ref: '#/components/schemas/ModelProviderName'
         model:
           type: string
-          enum: [gpt-5.4-nano, deepseek-chat]
+          enum: [gpt-5.4-nano, deepseek-chat, gemini-3.5-flash-lite]
           description: |
             Server-approved model identifier for the selected provider. When omitted,
             the service uses `gpt-5.4-nano` for `openai` and `deepseek-chat` for
-            `deepseek`. A model that does not belong to the selected provider is
+            `deepseek`, and `gemini-3.5-flash-lite` for `gemini`. A model that does not
+            belong to the selected provider is
             rejected with `MODEL_SELECTION_UNSUPPORTED`.
-          examples: [gpt-5.4-nano, deepseek-chat]
+          examples: [gpt-5.4-nano, deepseek-chat, gemini-3.5-flash-lite]
     ModelProviderName:
       type: string
-      enum: [openai, deepseek]
+      enum: [openai, deepseek, gemini]
       default: openai
       description: |
         Model provider used for this generation request. Defaults to `openai` when
@@ -209,6 +272,15 @@ components:
           $ref: '#/components/schemas/Message'
         assistantMessage:
           $ref: '#/components/schemas/Message'
+    AssistantDeltaEvent:
+      type: object
+      additionalProperties: false
+      required: [delta]
+      properties:
+        delta:
+          type: string
+          minLength: 1
+          description: Newly generated assistant text to append to the current response.
     Message:
       type: object
       additionalProperties: false
@@ -273,6 +345,12 @@ components:
                 error:
                   code: MODEL_SELECTION_UNSUPPORTED
                   message: The selected provider and model combination is not supported.
+            unsupportedStreamingProvider:
+              summary: Selected provider has no incremental streaming implementation
+              value:
+                error:
+                  code: MODEL_STREAMING_UNSUPPORTED
+                  message: The selected model provider does not support streaming.
     ConversationNotFound:
       description: Conversation does not exist
       content:

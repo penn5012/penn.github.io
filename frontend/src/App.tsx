@@ -1,5 +1,6 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { apiClient } from './api/client'
+import { ApiError } from './api/errors'
 import type {
   Conversation,
   DemoResponse,
@@ -26,7 +27,19 @@ const MODEL_OPTIONS: ReadonlyArray<{
     model: 'deepseek-chat',
     description: '通用对话模型',
   },
+  {
+    provider: 'gemini',
+    providerLabel: 'Google Gemini',
+    model: 'gemini-3.5-flash-lite',
+    description: '快速响应模型',
+  },
 ]
+
+const CONVERSATION_TITLE_MAX_LENGTH = 120
+
+type ChatMessage = Message & {
+  streaming?: boolean
+}
 
 export default function App() {
   const [demo, setDemo] = useState<DemoResponse | null>(null)
@@ -36,18 +49,21 @@ export default function App() {
   const [conversations, setConversations] = useState<Conversation[]>([])
   const [activeConversationId, setActiveConversationId] = useState('')
   const [messagesByConversation, setMessagesByConversation] = useState<
-    Record<string, Message[]>
+    Record<string, ChatMessage[]>
   >({})
   const [title, setTitle] = useState('')
   const [error, setError] = useState('')
   const [draft, setDraft] = useState('')
   const [sending, setSending] = useState(false)
   const [chatError, setChatError] = useState('')
-  const [selectedProvider, setSelectedProvider] =
-    useState<ModelProviderName>('openai')
+  const [selectedModelName, setSelectedModelName] = useState<ModelName>(
+    'gemini-3.5-flash-lite',
+  )
+  const abortControllerRef = useRef<AbortController | null>(null)
+  const messageListRef = useRef<HTMLDivElement | null>(null)
 
   const selectedModel = MODEL_OPTIONS.find(
-    (option) => option.provider === selectedProvider,
+    (option) => option.model === selectedModelName,
   )!
 
   const activeConversation = conversations.find(
@@ -74,6 +90,11 @@ export default function App() {
 
     void loadConversations()
   }, [])
+
+  useEffect(() => {
+    const messageList = messageListRef.current
+    if (messageList) messageList.scrollTop = messageList.scrollHeight
+  }, [activeMessages])
 
   async function handleDemoCall() {
     const code = demoCode.trim()
@@ -105,6 +126,11 @@ export default function App() {
     const nextTitle = title.trim()
     if (!nextTitle || sending) return
 
+    if (nextTitle.length > CONVERSATION_TITLE_MAX_LENGTH) {
+      setError(`会话标题不能超过 ${CONVERSATION_TITLE_MAX_LENGTH} 个字符`)
+      return
+    }
+
     try {
       const conversation = await apiClient.createConversation(nextTitle)
       setConversations((current) => [conversation, ...current])
@@ -129,20 +155,68 @@ export default function App() {
 
     if (!content || !conversationId || sending) return
 
+    const pendingId = crypto.randomUUID()
+    const pendingUserId = `pending-user-${pendingId}`
+    const pendingAssistantId = `pending-assistant-${pendingId}`
+    const createdAt = new Date().toISOString()
+    const supportsStreaming = selectedModel.provider === 'gemini'
+    const abortController = supportsStreaming ? new AbortController() : null
+
+    setMessagesByConversation((current) => ({
+      ...current,
+      [conversationId]: [
+        ...(current[conversationId] ?? []),
+        {
+          id: pendingUserId,
+          conversationId,
+          role: 'user',
+          content,
+          createdAt,
+        },
+        {
+          id: pendingAssistantId,
+          conversationId,
+          role: 'assistant',
+          content: '',
+          createdAt,
+          streaming: supportsStreaming,
+        },
+      ],
+    }))
+    abortControllerRef.current = abortController
     setSending(true)
     setChatError('')
 
     try {
-      const result = await apiClient.sendMessage(conversationId, {
+      const requestData = {
         content,
         provider: selectedModel.provider,
         model: selectedModel.model,
-      })
+      }
+      const result = supportsStreaming
+        ? await apiClient.streamMessage(conversationId, requestData, {
+            signal: abortController?.signal,
+            onDelta: (delta) => {
+              setMessagesByConversation((current) => ({
+                ...current,
+                [conversationId]: (current[conversationId] ?? []).map(
+                  (message) =>
+                    message.id === pendingAssistantId
+                      ? { ...message, content: message.content + delta }
+                      : message,
+                ),
+              }))
+            },
+          })
+        : await apiClient.sendMessage(conversationId, requestData)
 
       setMessagesByConversation((current) => ({
         ...current,
         [conversationId]: [
-          ...(current[conversationId] ?? []),
+          ...(current[conversationId] ?? []).filter(
+            (message) =>
+              message.id !== pendingUserId && message.id !== pendingAssistantId,
+          ),
           result.userMessage,
           result.assistantMessage,
         ],
@@ -162,14 +236,75 @@ export default function App() {
       })
       setDraft('')
     } catch (requestError: unknown) {
+      if (
+        requestError instanceof DOMException &&
+        requestError.name === 'AbortError'
+      ) {
+        setMessagesByConversation((current) => ({
+          ...current,
+          [conversationId]: (current[conversationId] ?? [])
+            .map((message) => {
+              if (message.id !== pendingAssistantId) return message
+              if (!message.content) return null
+
+              return { ...message, streaming: false }
+            })
+            .filter((message): message is ChatMessage => message !== null),
+        }))
+        setDraft('')
+        setChatError('已停止生成。')
+        return
+      }
+
+      setMessagesByConversation((current) => ({
+        ...current,
+        [conversationId]: (current[conversationId] ?? []).filter(
+          (message) =>
+            message.id !== pendingUserId && message.id !== pendingAssistantId,
+        ),
+      }))
+
+      if (
+        requestError instanceof ApiError &&
+        requestError.code === 'CONVERSATION_NOT_FOUND'
+      ) {
+        try {
+          const latestConversations = await apiClient.listConversations()
+          setConversations(latestConversations)
+          setActiveConversationId(latestConversations[0]?.id ?? '')
+        } catch {
+          setConversations((current) =>
+            current.filter(
+              (conversation) => conversation.id !== conversationId,
+            ),
+          )
+          setActiveConversationId('')
+        }
+
+        setMessagesByConversation((current) => {
+          const next = { ...current }
+          delete next[conversationId]
+          return next
+        })
+        setChatError('当前会话已失效，请重新创建会话后发送。')
+        return
+      }
+
       setChatError(
         requestError instanceof Error
           ? requestError.message
           : '消息发送失败，请稍后重试。',
       )
     } finally {
+      if (abortControllerRef.current === abortController) {
+        abortControllerRef.current = null
+      }
       setSending(false)
     }
+  }
+
+  function handleStopGenerating() {
+    abortControllerRef.current?.abort()
   }
 
   return (
@@ -252,6 +387,7 @@ export default function App() {
               }
               placeholder="例如：设计知识库问答 MVP"
               aria-label="会话标题"
+              maxLength={CONVERSATION_TITLE_MAX_LENGTH}
               disabled={sending}
             />
             <button
@@ -313,7 +449,7 @@ export default function App() {
           </div>
 
           <p className="chat-note">
-            当前只展示本页面中成功返回的消息；刷新页面不会恢复消息历史。
+            Gemini 支持增量显示和停止生成；刷新页面暂时不会恢复消息历史。
           </p>
 
           <fieldset className="model-picker" disabled={sending}>
@@ -322,18 +458,18 @@ export default function App() {
               {MODEL_OPTIONS.map((option) => (
                 <label
                   className="model-option"
-                  data-active={selectedProvider === option.provider}
-                  key={option.provider}
+                  data-active={selectedModelName === option.model}
+                  key={option.model}
                 >
                   <input
-                    checked={selectedProvider === option.provider}
-                    name="model-provider"
+                    checked={selectedModelName === option.model}
+                    name="model"
                     onChange={() => {
-                      setSelectedProvider(option.provider)
+                      setSelectedModelName(option.model)
                       setChatError('')
                     }}
                     type="radio"
-                    value={option.provider}
+                    value={option.model}
                   />
                   <span>
                     <strong>{option.providerLabel}</strong>
@@ -350,7 +486,12 @@ export default function App() {
             </p>
           </fieldset>
 
-          <div className="message-list" aria-live="polite">
+          <div
+            aria-busy={sending}
+            aria-live="polite"
+            className="message-list"
+            ref={messageListRef}
+          >
             {!activeConversation && (
               <div className="chat-empty">请先创建或选择一个会话。</div>
             )}
@@ -362,24 +503,31 @@ export default function App() {
             {activeMessages.map((message) => (
               <article
                 className={`message message-${message.role}`}
+                data-streaming={message.streaming || undefined}
                 key={message.id}
               >
-                <span>{message.role === 'user' ? '你' : 'AI'}</span>
-                <p>{message.content}</p>
+                <span>
+                  {message.role === 'user'
+                    ? '你'
+                    : message.streaming
+                      ? 'AI · 生成中'
+                      : 'AI'}
+                </span>
+                <p>
+                  {message.content ||
+                    (message.streaming ? '正在连接模型…' : '')}
+                  {message.streaming && message.content && (
+                    <i className="streaming-cursor" aria-hidden="true" />
+                  )}
+                </p>
               </article>
             ))}
-            {sending && (
-              <div className="thinking" role="status">
-                AI 正在思考…
-              </div>
-            )}
           </div>
 
           <div className="composer">
             <label htmlFor="chat-draft">聊天内容</label>
             <textarea
               id="chat-draft"
-              maxLength={10000}
               onChange={(event) => setDraft(event.target.value)}
               onKeyDown={(event) => {
                 if (
@@ -400,14 +548,28 @@ export default function App() {
               value={draft}
             />
             <div className="composer-footer">
-              <span>本阶段为非流式回复，请等待完整结果。</span>
-              <button
-                type="button"
-                onClick={() => void handleSendMessage()}
-                disabled={!draft.trim() || !activeConversation || sending}
-              >
-                {sending ? '发送中…' : '发送消息'}
-              </button>
+              <span>
+                {selectedModel.provider === 'gemini'
+                  ? '回复将实时显示，可随时停止生成。'
+                  : '当前模型暂未接入流式输出，请等待完整结果。'}
+              </span>
+              {sending && abortControllerRef.current ? (
+                <button
+                  className="stop-button"
+                  onClick={handleStopGenerating}
+                  type="button"
+                >
+                  停止生成
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => void handleSendMessage()}
+                  disabled={!draft.trim() || !activeConversation || sending}
+                >
+                  {sending ? '发送中…' : '发送消息'}
+                </button>
+              )}
             </div>
             {chatError && (
               <p className="error" role="alert">

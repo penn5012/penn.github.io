@@ -27,6 +27,7 @@ export function buildApp(
           model: env.model,
           openAiApiKey: env.openAiApiKey,
           deepSeekApiKey: env.deepSeekApiKey,
+          geminiApiKey: env.geminiApiKey,
           timeoutMs: env.modelTimeoutMs,
         }))
   registerErrorHandler(app)

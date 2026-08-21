@@ -19,9 +19,10 @@ export type DemoResponse = {
 
 export type MessageRole = 'user' | 'assistant'
 
-export type ModelProviderName = 'openai' | 'deepseek'
+export type ModelProviderName = 'openai' | 'deepseek' | 'gemini'
 
-export type ModelName = 'gpt-5.4-nano' | 'deepseek-chat'
+export type ModelName =
+  'gpt-5.4-nano' | 'deepseek-chat' | 'gemini-3.5-flash-lite'
 
 export type CreateConversationMessageRequest = {
   content: string
@@ -40,6 +41,10 @@ export type Message = {
 export type CreateConversationMessageResponse = {
   userMessage: Message
   assistantMessage: Message
+}
+
+export type AssistantDeltaEvent = {
+  delta: string
 }
 
 export type ErrorEnvelope = {

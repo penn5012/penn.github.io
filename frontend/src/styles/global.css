@@ -288,7 +288,7 @@ button:disabled {
 }
 .model-options {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 10px;
 }
 .model-option {
@@ -381,6 +381,9 @@ button:disabled {
   border-color: #4b568f;
   background: #292f61;
 }
+.message[data-streaming='true'] {
+  border-color: #5966a7;
+}
 .message > span {
   display: block;
   margin-bottom: 6px;
@@ -395,13 +398,14 @@ button:disabled {
   line-height: 1.65;
   white-space: pre-wrap;
 }
-.thinking {
-  align-self: flex-start;
-  padding: 12px 14px;
-  border-radius: 14px;
-  color: #adb4d0;
-  background: #141933;
-  font-size: 13px;
+.streaming-cursor {
+  display: inline-block;
+  width: 2px;
+  height: 1em;
+  margin-left: 3px;
+  animation: streaming-cursor 0.8s steps(1) infinite;
+  background: #8d9bff;
+  vertical-align: -0.12em;
 }
 .composer {
   margin-top: 18px;
@@ -435,6 +439,21 @@ button:disabled {
 }
 .composer-footer button {
   min-height: 44px;
+}
+.composer-footer .stop-button {
+  border: 1px solid #8e5c70;
+  color: #ffc3d1;
+  background: #402436;
+}
+@keyframes streaming-cursor {
+  50% {
+    opacity: 0;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .streaming-cursor {
+    animation: none;
+  }
 }
 @media (max-width: 760px) {
   .shell {

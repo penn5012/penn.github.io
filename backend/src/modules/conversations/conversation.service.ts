@@ -13,6 +13,12 @@ import type {
 const conversations = new Map<string, Conversation>()
 const messages = new Map<string, Message[]>()
 
+export type PreparedConversationMessage = {
+  context: readonly ModelMessage[]
+  complete(assistantContent: string): CreateConversationMessageResponse
+  pause(partialAssistantContent: string): void
+}
+
 export function listConversations(): Conversation[] {
   return [...conversations.values()].sort((a, b) =>
     b.updatedAt.localeCompare(a.updatedAt),
@@ -37,53 +43,115 @@ export async function createConversationMessage(
   content: string,
   provider: ModelProvider,
 ): Promise<CreateConversationMessageResponse> {
+  const prepared = prepareConversationMessage(conversationId, content)
+  const assistantContent = await provider.generateReply(prepared.context)
+  return prepared.complete(assistantContent)
+}
+
+/**
+ * Validates the conversation and captures one immutable generation context.
+ * Streaming routes call `complete` after a successful response or `pause` when
+ * the user stops generation. Provider failures call neither method, so failed
+ * partial output does not become conversation history.
+ */
+export function prepareConversationMessage(
+  conversationId: string,
+  content: string,
+): PreparedConversationMessage {
   const conversation = conversations.get(conversationId)
   if (!conversation) {
     throw new AppError(404, 'CONVERSATION_NOT_FOUND', 'Conversation not found.')
   }
 
   const conversationMessages = messages.get(conversationId) ?? []
-  // Keep complete user/assistant turns: nine prior pairs plus the current
-  // user message keeps the provider input bounded without splitting a turn.
-  const context: ModelMessage[] = conversationMessages
-    .slice(-18)
-    .map(({ role, content }) => ({ role, content }))
+  // Keep the most recent bounded history. A stopped request may leave a user
+  // message without an assistant reply, so a trailing user is valid. If the
+  // slice starts midway through an older pair, drop that orphan assistant.
+  const boundedHistory = conversationMessages.slice(-18)
+  if (boundedHistory[0]?.role === 'assistant') boundedHistory.shift()
+
+  const context: ModelMessage[] = boundedHistory.map(({ role, content }) => ({
+    role,
+    content,
+  }))
   context.push({ role: 'user', content })
 
-  // Generate first. The two messages and the conversation timestamp are only
-  // mutated after the provider has returned a valid reply.
-  const assistantContent = await provider.generateReply(context)
-  if (!assistantContent.trim()) {
-    throw new AppError(
-      502,
-      'MODEL_PROVIDER_ERROR',
-      'The assistant could not generate a response.',
-    )
-  }
-  const now = new Date().toISOString()
-  const userMessage: Message = {
-    id: randomUUID(),
-    conversationId,
-    role: 'user',
-    content,
-    createdAt: now,
-  }
-  const assistantMessage: Message = {
-    id: randomUUID(),
-    conversationId,
-    role: 'assistant',
-    content: assistantContent,
-    createdAt: now,
+  let settled = false
+
+  const savePausedMessages = (partialAssistantContent: string) => {
+    const now = new Date().toISOString()
+    const pausedMessages: Message[] = [
+      {
+        id: randomUUID(),
+        conversationId,
+        role: 'user',
+        content,
+        createdAt: now,
+      },
+    ]
+
+    // When the user stops before the first token arrives, the user message is
+    // still valuable context. Only add an assistant message when some visible
+    // text was actually generated.
+    if (partialAssistantContent.trim()) {
+      pausedMessages.push({
+        id: randomUUID(),
+        conversationId,
+        role: 'assistant',
+        content: partialAssistantContent,
+        createdAt: now,
+      })
+    }
+
+    messages.set(conversationId, [...conversationMessages, ...pausedMessages])
+    conversation.updatedAt = now
   }
 
-  messages.set(conversationId, [
-    ...conversationMessages,
-    userMessage,
-    assistantMessage,
-  ])
-  conversation.updatedAt = now
+  return {
+    context,
+    complete(assistantContent) {
+      if (settled || !assistantContent.trim()) {
+        throw new AppError(
+          502,
+          'MODEL_PROVIDER_ERROR',
+          'The assistant could not generate a response.',
+        )
+      }
+      settled = true
 
-  return { userMessage, assistantMessage }
+      const now = new Date().toISOString()
+      const userMessage: Message = {
+        id: randomUUID(),
+        conversationId,
+        role: 'user',
+        content,
+        createdAt: now,
+      }
+      const assistantMessage: Message = {
+        id: randomUUID(),
+        conversationId,
+        role: 'assistant',
+        content: assistantContent,
+        createdAt: now,
+      }
+
+      messages.set(conversationId, [
+        ...conversationMessages,
+        userMessage,
+        assistantMessage,
+      ])
+      conversation.updatedAt = now
+
+      return { userMessage, assistantMessage }
+    },
+    pause(partialAssistantContent) {
+      // Socket close and request abort can fire for the same cancellation.
+      // Settling once prevents the paused turn from being stored twice.
+      if (settled) return
+      settled = true
+      savePausedMessages(partialAssistantContent)
+    },
+  }
 }
 
 export function listMessages(conversationId: string): Message[] {

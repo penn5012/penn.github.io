@@ -5,6 +5,16 @@ export type ModelMessage = {
 
 export interface ModelProvider {
   generateReply(messages: readonly ModelMessage[]): Promise<string>
+
+  /**
+   * Starts an incremental reply when the vendor supports upstream streaming.
+   * Resolving the promise means the upstream stream was created successfully;
+   * failures after that point are reported while consuming the iterable.
+   */
+  streamReply?(
+    messages: readonly ModelMessage[],
+    signal?: AbortSignal,
+  ): Promise<AsyncIterable<string>>
 }
 
 export class ModelProviderUnavailableError extends Error {

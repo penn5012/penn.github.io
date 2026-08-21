@@ -16,14 +16,23 @@ function parseTimeout(value: string | undefined): number {
   return timeout
 }
 
-export type ModelProviderName = 'openai' | 'deepseek'
+export type ModelProviderName = 'openai' | 'deepseek' | 'gemini'
 
 function parseModelProvider(value: string | undefined): ModelProviderName {
   const provider = value ?? 'openai'
-  if (provider !== 'openai' && provider !== 'deepseek') {
-    throw new Error('MODEL_PROVIDER 只支持 openai 或 deepseek')
+  if (
+    provider !== 'openai' &&
+    provider !== 'deepseek' &&
+    provider !== 'gemini'
+  ) {
+    throw new Error('MODEL_PROVIDER 只支持 openai、deepseek 或 gemini')
   }
   return provider
+}
+
+function optionalValue(value: string | undefined): string | undefined {
+  const trimmed = value?.trim()
+  return trimmed || undefined
 }
 
 const modelProvider = parseModelProvider(
@@ -36,12 +45,18 @@ export const env = {
   corsOrigin: process.env.CORS_ORIGIN ?? 'http://localhost:5173',
   modelProvider,
   model:
-    process.env.MODEL ??
+    // MODEL is an optional explicit override. Treat an empty value as absent so
+    // switching MODEL_PROVIDER in a copied .env file selects that provider's
+    // safe default instead of retaining an unrelated model identifier.
+    optionalValue(process.env.MODEL) ??
     (modelProvider === 'deepseek'
-      ? (process.env.DEEPSEEK_MODEL ?? 'deepseek-chat')
-      : (process.env.OPENAI_MODEL ?? 'gpt-5.4-nano')),
+      ? (optionalValue(process.env.DEEPSEEK_MODEL) ?? 'deepseek-chat')
+      : modelProvider === 'gemini'
+        ? (optionalValue(process.env.GEMINI_MODEL) ?? 'gemini-3.5-flash-lite')
+        : (optionalValue(process.env.OPENAI_MODEL) ?? 'gpt-5.4-nano')),
   openAiApiKey: process.env.OPENAI_API_KEY,
   deepSeekApiKey: process.env.DEEPSEEK_API_KEY,
+  geminiApiKey: process.env.GEMINI_API_KEY,
   modelTimeoutMs: parseTimeout(
     process.env.MODEL_TIMEOUT_MS ?? process.env.OPENAI_TIMEOUT_MS,
   ),
